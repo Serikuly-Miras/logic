@@ -4,3 +4,4 @@ librelane.log
 projects/*/spade.sv
 projects/*/runs/
 projects/*/out/
+projects/*/flow.log

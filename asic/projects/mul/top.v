@@ -1,4 +1,4 @@
-module mul_top (
+module mul16 (
     input         clk_i,
     input  [15:0] a_i,
     input  [15:0] b_i,

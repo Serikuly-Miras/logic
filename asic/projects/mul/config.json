@@ -1,5 +1,5 @@
 {
-    "DESIGN_NAME": "mul_top",
+    "DESIGN_NAME": "mul16",
     "VERILOG_FILES": [
         "dir::spade.sv",
         "dir::top.v"
@@ -7,5 +7,7 @@
     "CLOCK_PORT": "clk_i",
     "CLOCK_PERIOD": 20,
     "FP_SIZING": "relative",
-    "FP_CORE_UTIL": 40
+    "FP_CORE_UTIL": 40,
+    "DESIGN_REPAIR_MAX_SLEW_PCT": 30,
+    "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 30
 }

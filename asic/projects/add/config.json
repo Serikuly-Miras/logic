@@ -1,5 +1,5 @@
 {
-    "DESIGN_NAME": "add_top",
+    "DESIGN_NAME": "add16",
     "VERILOG_FILES": [
         "dir::spade.sv",
         "dir::top.v"
