@@ -1,0 +1,4 @@
+gdstk==1.0.1
+numpy
+mapbox-earcut
+trimesh

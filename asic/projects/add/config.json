@@ -1,0 +1,11 @@
+{
+    "DESIGN_NAME": "add_top",
+    "VERILOG_FILES": [
+        "dir::spade.sv",
+        "dir::top.v"
+    ],
+    "CLOCK_PORT": "clk_i",
+    "CLOCK_PERIOD": 20,
+    "FP_SIZING": "relative",
+    "FP_CORE_UTIL": 40
+}

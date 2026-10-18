@@ -1,10 +1,10 @@
 struct Output {
-    product: int<64>,
+    product: int<16>,
 }
 
-pipeline(1) mul(clk: clock, a: int<32>, b: int<32>) -> Output {
+pipeline(1) mul(clk: clock, a: int<16>, b: int<16>) -> Output {
         let result = Output {
-            product: a*b,
+            product: a.wrapping_mul(b),
         };
     reg;
         result

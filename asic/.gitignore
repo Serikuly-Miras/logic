@@ -1,0 +1,6 @@
+.venv/
+librelane.log
+# per project: copied from ../build by run.sh, LibreLane runs, exported model
+projects/*/spade.sv
+projects/*/runs/
+projects/*/out/

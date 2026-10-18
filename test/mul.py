@@ -7,8 +7,12 @@ from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge
 from spade import SpadeExt
 
-INT32_MIN = -(2**31)
-INT32_MAX = 2**31 - 1
+INT16_MIN = -(2**15)
+INT16_MAX = 2**15 - 1
+
+
+def wrap16(x):
+    return (x - INT16_MIN) % 2**16 + INT16_MIN
 
 
 async def setup(dut):
@@ -21,7 +25,7 @@ async def setup(dut):
 async def check_product(s, dut, a, b):
     s.i.a, s.i.b = str(a), str(b)
     await FallingEdge(dut.clk_i)
-    s.o.product.assert_eq(str(a * b))
+    s.o.product.assert_eq(str(wrap16(a * b)))
 
 
 @cocotb.test()
@@ -47,9 +51,11 @@ async def with_negative(dut):
 async def extremes(dut):
     s = await setup(dut)
     for a, b in [
-        (INT32_MAX, INT32_MAX),
-        (INT32_MIN, INT32_MIN),
-        (INT32_MIN, INT32_MAX),
+        (INT16_MAX, INT16_MAX),
+        (INT16_MIN, INT16_MIN),
+        (INT16_MIN, INT16_MAX),
+        (INT16_MIN, -1),
+        (256, 256),
     ]:
         await check_product(s, dut, a, b)
 
@@ -58,6 +64,6 @@ async def extremes(dut):
 async def random_values(dut):
     s = await setup(dut)
     for _ in range(100):
-        a = random.randint(INT32_MIN, INT32_MAX)
-        b = random.randint(INT32_MIN, INT32_MAX)
+        a = random.randint(INT16_MIN, INT16_MAX)
+        b = random.randint(INT16_MIN, INT16_MAX)
         await check_product(s, dut, a, b)
