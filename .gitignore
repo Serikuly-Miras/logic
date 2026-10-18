@@ -1,2 +1,3 @@
 build/
 .surfer/
+.DS_Store
