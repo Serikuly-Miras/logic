@@ -1,0 +1,11 @@
+struct Output {
+    sum: int<33>,
+}
+
+pipeline(1) add(clk: clock, a: int<32>, b: int<32>) -> Output {
+        let result = Output {
+            sum: a+b,
+        };
+    reg;
+        result
+}

@@ -1,0 +1,11 @@
+struct Output {
+    product: int<64>,
+}
+
+pipeline(1) mul(clk: clock, a: int<32>, b: int<32>) -> Output {
+        let result = Output {
+            product: a*b,
+        };
+    reg;
+        result
+}
