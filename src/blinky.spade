@@ -1,0 +1,16 @@
+entity blinky_n<#uint Duration>(clk: clock, rst: bool) -> bool {
+    reg(clk) count: uint<28> reset(rst: 0) = if count == Duration {
+        0
+    } else {
+        trunc(count + 1)
+    };
+    count > Duration / 2
+}
+
+entity blinky(clk: clock, rst: bool) -> bool {
+    inst blinky_n::<100_000_000>(clk, rst)
+}
+
+entity blinky_test(clk: clock, rst: bool) -> bool {
+    inst blinky_n::<100>(clk, rst)
+}
