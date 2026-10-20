@@ -1,0 +1,40 @@
+use std::mem::clocked_memory;
+use std::mem::read_memory;
+
+struct FifoOut {
+    head: uint<16>,
+    empty: bool,
+    full: bool,
+    count: uint<5>,
+    dropped: bool,
+}
+
+entity fifo16(clk: clock, rst: bool, push: bool, data: uint<16>, pop: bool) -> FifoOut {
+    decl rd, wr, count;
+
+    let empty = count == 0;
+    let full = count == 16;
+    let do_pop = pop && !empty;
+    let overflow = push && full && !do_pop;
+
+    reg(clk) wr: uint<4> reset(rst: 0) = if push { trunc(wr + 1) } else { wr };
+    reg(clk) rd: uint<4> reset(rst: 0) = if do_pop || overflow { trunc(rd + 1) } else { rd };
+    reg(clk) count: uint<5> reset(rst: 0) =
+        if push && !do_pop && !full {
+            trunc(count + 1)
+        } else if do_pop && !push {
+            trunc(count - 1)
+        } else {
+            count
+        };
+
+    let mem = inst clocked_memory::<16, 1, 4, uint<16>>(clk, [(push, wr, data)]);
+
+    FifoOut {
+        head: inst read_memory(mem, rd),
+        empty,
+        full,
+        count,
+        dropped: overflow,
+    }
+}
