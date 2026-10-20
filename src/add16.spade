@@ -2,7 +2,7 @@ struct Output {
     sum: int<16>,
 }
 
-pipeline(1) add(clk: clock, a: int<16>, b: int<16>) -> Output {
+pipeline(1) add16(clk: clock, a: int<16>, b: int<16>) -> Output {
         let result = Output {
             sum: a.wrapping_add(b),
         };

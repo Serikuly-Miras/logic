@@ -1,4 +1,4 @@
-# top = add::add
+# top = mul16::mul16
 
 import random
 
@@ -22,30 +22,29 @@ async def setup(dut):
     return s
 
 
-async def check_sum(s, dut, a, b):
+async def check_product(s, dut, a, b):
     s.i.a, s.i.b = str(a), str(b)
     await FallingEdge(dut.clk_i)
-    s.o.sum.assert_eq(str(wrap16(a + b)))
+    s.o.product.assert_eq(str(wrap16(a * b)))
 
 
 @cocotb.test()
 async def zero(dut):
     s = await setup(dut)
-    await check_sum(s, dut, 0, 0)
-    await check_sum(s, dut, 0, 7)
+    await check_product(s, dut, 0, 12345)
 
 
 @cocotb.test()
 async def with_positive(dut):
     s = await setup(dut)
-    await check_sum(s, dut, 10, 10)
+    await check_product(s, dut, 6, 7)
 
 
 @cocotb.test()
 async def with_negative(dut):
     s = await setup(dut)
-    await check_sum(s, dut, -8, 7)
-    await check_sum(s, dut, -8, -7)
+    await check_product(s, dut, -8, 7)
+    await check_product(s, dut, -8, -7)
 
 
 @cocotb.test()
@@ -55,10 +54,10 @@ async def extremes(dut):
         (INT16_MAX, INT16_MAX),
         (INT16_MIN, INT16_MIN),
         (INT16_MIN, INT16_MAX),
-        (INT16_MAX, 1),
         (INT16_MIN, -1),
+        (256, 256),
     ]:
-        await check_sum(s, dut, a, b)
+        await check_product(s, dut, a, b)
 
 
 @cocotb.test()
@@ -67,4 +66,4 @@ async def random_values(dut):
     for _ in range(100):
         a = random.randint(INT16_MIN, INT16_MAX)
         b = random.randint(INT16_MIN, INT16_MAX)
-        await check_sum(s, dut, a, b)
+        await check_product(s, dut, a, b)

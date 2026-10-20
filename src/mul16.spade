@@ -2,7 +2,7 @@ struct Output {
     product: int<16>,
 }
 
-pipeline(1) mul(clk: clock, a: int<16>, b: int<16>) -> Output {
+pipeline(1) mul16(clk: clock, a: int<16>, b: int<16>) -> Output {
         let result = Output {
             product: a.wrapping_mul(b),
         };

@@ -4,7 +4,7 @@ module mul16 (
     input  [15:0] b_i,
     output [15:0] product_o
 );
-    \logic::mul::mul  u_mul (
+    \logic::mul16::mul16  u_mul16 (
         .clk_i(clk_i),
         .a_i(a_i),
         .b_i(b_i),
