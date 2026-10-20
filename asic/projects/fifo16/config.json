@@ -8,6 +8,13 @@
     "CLOCK_PERIOD": 20,
     "FP_SIZING": "relative",
     "FP_CORE_UTIL": 40,
-    "DESIGN_REPAIR_MAX_SLEW_PCT": 30,
-    "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 30
+    "DESIGN_REPAIR_MAX_SLEW_PCT": 40,
+    "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 40,
+    "CTS_SINK_CLUSTERING_SIZE": 10,
+    "RSZ_CORNERS": [
+        "nom_ss_100C_1v60",
+        "min_ss_100C_1v60",
+        "max_ss_100C_1v60"
+    ],
+    "RUN_POST_GRT_DESIGN_REPAIR": true
 }
