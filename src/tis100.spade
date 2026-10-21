@@ -1,0 +1,342 @@
+use std::mem::clocked_memory;
+use std::mem::read_memory;
+
+fn saturate(x: int<12>) -> int<11> {
+    if x > 999 {
+        999
+    } else if x < -999 {
+        -999
+    } else {
+        trunc(x)
+    }
+}
+
+struct T21Out {
+    acc: int<11>,
+    bak: int<11>,
+    pc: uint<4>,
+    in_ready: [bool; 4],
+    outs: [Option<int<11>>; 4],
+}
+
+enum Port {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+fn idx(port: Port) -> uint<2> {
+    match port {
+        Port::Up => 0,
+        Port::Down => 1,
+        Port::Left => 2,
+        Port::Right => 3,
+    }
+}
+
+fn port_is(port: Option<Port>, i: uint<2>) -> bool {
+    match port {
+        Some(p) => idx(p) == i,
+        None => false,
+    }
+}
+
+enum Src {
+    Imm{value: int<11>},
+    Acc,
+    Nil,
+    Port{port: Port},
+    Any,
+    Last,
+}
+
+enum Dst {
+    Acc,
+    Nil,
+    Port{port: Port},
+    Any,
+    Last,
+}
+
+enum Instr {
+    Nop,
+    Mov{src: Src, dst: Dst},
+    Add{src: Src},
+    Sub{src: Src},
+    Neg,
+    Sav,
+    Swp,
+    Jmp{target: uint<4>},
+    Jez{target: uint<4>},
+    Jnz{target: uint<4>},
+    Jgz{target: uint<4>},
+    Jlz{target: uint<4>},
+    Jro{src: Src},
+}
+
+fn src_of(instr: Instr) -> Option<Src> {
+    match instr {
+        Instr::Mov(src, _) => Some(src),
+        Instr::Add(src) => Some(src),
+        Instr::Sub(src) => Some(src),
+        Instr::Jro(src) => Some(src),
+        _ => None,
+    }
+}
+
+fn dst_of(instr: Instr) -> Option<Dst> {
+    match instr {
+        Instr::Mov(_, dst) => Some(dst),
+        _ => None,
+    }
+}
+
+fn local(src: Option<Src>, acc: int<11>) -> int<11> {
+    match src {
+        Some(Src::Imm(value)) => value,
+        Some(Src::Acc) => acc,
+        _ => 0,
+    }
+}
+
+// Reading ANY takes the first port with a value, in this order.
+fn first_valid(ins: [Option<int<11>>; 4]) -> Option<Port> {
+    if ins[idx(Port::Left)].is_some() {
+        Some(Port::Left)
+    } else if ins[idx(Port::Right)].is_some() {
+        Some(Port::Right)
+    } else if ins[idx(Port::Up)].is_some() {
+        Some(Port::Up)
+    } else if ins[idx(Port::Down)].is_some() {
+        Some(Port::Down)
+    } else {
+        None
+    }
+}
+
+// Writing ANY offers to one port at a time, moving on each cycle it isn't taken.
+fn any_write_port(rot: uint<2>) -> Port {
+    match rot {
+        0 => Port::Up,
+        1 => Port::Left,
+        2 => Port::Right,
+        _ => Port::Down,
+    }
+}
+
+fn next_pc(pc: uint<4>, len: uint<4>) -> uint<4> {
+    if pc + 1 >= zext(len) { 0 } else { trunc(pc + 1) }
+}
+
+fn jump_if(cond: bool, target: uint<4>, next: uint<4>) -> uint<4> {
+    if cond { target } else { next }
+}
+
+fn jro(pc: uint<4>, offset: int<11>, len: uint<4>) -> uint<4> {
+    let dest: int<12> = sext(pc.to_int()) + offset;
+    let last: int<12> = sext(len.to_int()) - 1;
+    let clamped = if dest < 0 { 0 } else if dest > last { last } else { dest };
+    trunc(clamped.as_uint())
+}
+
+// `operand` is the already-resolved value of the instruction's source.
+fn step(instr: Instr, acc: int<11>, bak: int<11>, pc: uint<4>, len: uint<4>, operand: int<11>) -> (int<11>, int<11>, uint<4>) {
+    let next = next_pc(pc, len);
+    match instr {
+        Instr::Nop       => (acc, bak, next),
+        Instr::Mov(_, dst) => match dst {
+            Dst::Acc => (operand, bak, next),
+            _ => (acc, bak, next),  // NIL, or LAST with no ANY yet. Ports use the hold register.
+        },
+        Instr::Add(_)    => (saturate(acc + operand), bak, next),
+        Instr::Sub(_)    => (saturate(acc - operand), bak, next),
+        Instr::Neg       => (saturate(0 - acc), bak, next),
+        Instr::Sav       => (acc, acc, next),
+        Instr::Swp       => (bak, acc, next),
+        Instr::Jmp(t)    => (acc, bak, t),
+        Instr::Jez(t)    => (acc, bak, jump_if(acc == 0, t, next)),
+        Instr::Jnz(t)    => (acc, bak, jump_if(acc != 0, t, next)),
+        Instr::Jgz(t)    => (acc, bak, jump_if(acc > 0, t, next)),
+        Instr::Jlz(t)    => (acc, bak, jump_if(acc < 0, t, next)),
+        Instr::Jro(_)    => (acc, bak, jro(pc, operand, len)),
+    }
+}
+
+entity t21(
+    clk: clock,
+    rst: bool,
+    run: bool,
+    write: Option<(uint<4>, Instr)>,
+    len_write: Option<uint<4>>,
+    ins: [Option<int<11>>; 4],
+    out_ready: [bool; 4],
+) -> T21Out {
+    decl acc, bak, pc, hold, last, rot;
+
+    let (we, w_slot, w_instr) = match write {
+        Some((slot, instr)) => (true, slot, instr),
+        None => (false, 0, Instr::Nop),
+    };
+    let mem = inst clocked_memory::<15, 1, 4, Instr>(clk, [(we, w_slot, w_instr)]);
+
+    reg(clk) len: uint<4> reset(rst: 0) = match len_write {
+        Some(n) => n,
+        None => len,
+    };
+
+    let instr = if len == 0 { Instr::Nop } else { inst read_memory(mem, pc) };
+
+    // Which port to read, and whether its value is there. src_port == None means
+    // the source is not a port (or LAST with no ANY yet, which reads as NIL).
+    let any_in = first_valid(ins);
+    let (src_port, src_valid, src_is_any) = match src_of(instr) {
+        Some(Src::Port(p)) => (Some(p), ins[idx(p)].is_some(), false),
+        Some(Src::Any) => (any_in, any_in.is_some(), true),
+        Some(Src::Last) => match last {
+            Some(p) => (Some(p), ins[idx(p)].is_some(), false),
+            None => (None, true, false),
+        },
+        _ => (None, true, false),
+    };
+    let operand = match src_port {
+        Some(p) => ins[idx(p)].unwrap_or(0),
+        None => local(src_of(instr), acc),
+    };
+
+    // Which port to write. dst_port == None means MOV to ACC/NIL (or LAST with no ANY yet).
+    let (dst_port, dst_is_any) = match dst_of(instr) {
+        Some(Dst::Port(p)) => (Some(p), false),
+        Some(Dst::Any) => (Some(any_write_port(rot)), true),
+        Some(Dst::Last) => (last, false),
+        _ => (None, false),
+    };
+    let dst_ready = match dst_port {
+        Some(p) => out_ready[idx(p)],
+        None => false,
+    };
+
+    // MOV x, <port> runs in two phases so `outs` only depends on our own registers:
+    //   hold == None:    read x (may block), latch it into hold
+    //   hold == Some(v): offer v on the dst port until the neighbour is ready
+    let reading = run && hold.is_none();
+    let writing = run && hold.is_some();
+    let read_done = reading && src_valid;
+    let write_done = writing && dst_ready;
+
+    let in_ready = [
+        reading && port_is(src_port, 0),
+        reading && port_is(src_port, 1),
+        reading && port_is(src_port, 2),
+        reading && port_is(src_port, 3),
+    ];
+    let outs = [
+        if port_is(dst_port, 0) { hold } else { None },
+        if port_is(dst_port, 1) { hold } else { None },
+        if port_is(dst_port, 2) { hold } else { None },
+        if port_is(dst_port, 3) { hold } else { None },
+    ];
+
+    reg(clk) (acc, bak, pc, hold): (int<11>, int<11>, uint<4>, Option<int<11>>) reset(rst: (0, 0, 0, None)) =
+        if !run {
+            (0, 0, 0, None)
+        } else if writing {
+            if write_done { (acc, bak, next_pc(pc, len), None) } else { (acc, bak, pc, hold) }
+        } else if !read_done {
+            (acc, bak, pc, hold)
+        } else if dst_port.is_some() {
+            (acc, bak, pc, Some(operand))
+        } else {
+            let (a, b, p) = step(instr, acc, bak, pc, len, operand);
+            (a, b, p, None)
+        };
+
+    // LAST = the port the most recent ANY read or write actually used.
+    reg(clk) last: Option<Port> reset(rst: None) =
+        if !run {
+            None
+        } else if write_done && dst_is_any {
+            dst_port
+        } else if read_done && src_is_any {
+            src_port
+        } else {
+            last
+        };
+
+    // ANY write rotation; restarts at UP for every new write.
+    reg(clk) rot: uint<2> reset(rst: 0) = if writing && !dst_ready { trunc(rot + 1) } else { 0 };
+
+    T21Out { acc, bak, pc, in_ready, outs }
+}
+
+struct BoardOut {
+    nodes: [T21Out; 12],
+    top_in_ready: [bool; 4],
+    top_outs: [Option<int<11>>; 4],
+    bottom_in_ready: [bool; 4],
+    bottom_outs: [Option<int<11>>; 4],
+}
+
+entity board(
+    clk: clock,
+    rst: bool,
+    run: bool,
+    writes: [Option<(uint<4>, Instr)>; 12],
+    len_writes: [Option<uint<4>>; 12],
+    top_ins: [Option<int<11>>; 4],
+    top_out_ready: [bool; 4],
+    bottom_ins: [Option<int<11>>; 4],
+    bottom_out_ready: [bool; 4],
+) -> BoardOut {
+    let up = idx(Port::Up);
+    let down = idx(Port::Down);
+    let left = idx(Port::Left);
+    let right = idx(Port::Right);
+
+    decl n0, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11;
+
+    let n0 = inst t21(clk, rst, run, writes[0], len_writes[0],
+        [top_ins[0], n4.outs[up], None, n1.outs[left]],
+        [top_out_ready[0], n4.in_ready[up], false, n1.in_ready[left]]);
+    let n1 = inst t21(clk, rst, run, writes[1], len_writes[1],
+        [top_ins[1], n5.outs[up], n0.outs[right], n2.outs[left]],
+        [top_out_ready[1], n5.in_ready[up], n0.in_ready[right], n2.in_ready[left]]);
+    let n2 = inst t21(clk, rst, run, writes[2], len_writes[2],
+        [top_ins[2], n6.outs[up], n1.outs[right], n3.outs[left]],
+        [top_out_ready[2], n6.in_ready[up], n1.in_ready[right], n3.in_ready[left]]);
+    let n3 = inst t21(clk, rst, run, writes[3], len_writes[3],
+        [top_ins[3], n7.outs[up], n2.outs[right], None],
+        [top_out_ready[3], n7.in_ready[up], n2.in_ready[right], false]);
+    let n4 = inst t21(clk, rst, run, writes[4], len_writes[4],
+        [n0.outs[down], n8.outs[up], None, n5.outs[left]],
+        [n0.in_ready[down], n8.in_ready[up], false, n5.in_ready[left]]);
+    let n5 = inst t21(clk, rst, run, writes[5], len_writes[5],
+        [n1.outs[down], n9.outs[up], n4.outs[right], n6.outs[left]],
+        [n1.in_ready[down], n9.in_ready[up], n4.in_ready[right], n6.in_ready[left]]);
+    let n6 = inst t21(clk, rst, run, writes[6], len_writes[6],
+        [n2.outs[down], n10.outs[up], n5.outs[right], n7.outs[left]],
+        [n2.in_ready[down], n10.in_ready[up], n5.in_ready[right], n7.in_ready[left]]);
+    let n7 = inst t21(clk, rst, run, writes[7], len_writes[7],
+        [n3.outs[down], n11.outs[up], n6.outs[right], None],
+        [n3.in_ready[down], n11.in_ready[up], n6.in_ready[right], false]);
+    let n8 = inst t21(clk, rst, run, writes[8], len_writes[8],
+        [n4.outs[down], bottom_ins[0], None, n9.outs[left]],
+        [n4.in_ready[down], bottom_out_ready[0], false, n9.in_ready[left]]);
+    let n9 = inst t21(clk, rst, run, writes[9], len_writes[9],
+        [n5.outs[down], bottom_ins[1], n8.outs[right], n10.outs[left]],
+        [n5.in_ready[down], bottom_out_ready[1], n8.in_ready[right], n10.in_ready[left]]);
+    let n10 = inst t21(clk, rst, run, writes[10], len_writes[10],
+        [n6.outs[down], bottom_ins[2], n9.outs[right], n11.outs[left]],
+        [n6.in_ready[down], bottom_out_ready[2], n9.in_ready[right], n11.in_ready[left]]);
+    let n11 = inst t21(clk, rst, run, writes[11], len_writes[11],
+        [n7.outs[down], bottom_ins[3], n10.outs[right], None],
+        [n7.in_ready[down], bottom_out_ready[3], n10.in_ready[right], false]);
+
+    BoardOut {
+        nodes: [n0, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11],
+        top_in_ready: [n0.in_ready[up], n1.in_ready[up], n2.in_ready[up], n3.in_ready[up]],
+        top_outs: [n0.outs[up], n1.outs[up], n2.outs[up], n3.outs[up]],
+        bottom_in_ready: [n8.in_ready[down], n9.in_ready[down], n10.in_ready[down], n11.in_ready[down]],
+        bottom_outs: [n8.outs[down], n9.outs[down], n10.outs[down], n11.outs[down]],
+    }
+}

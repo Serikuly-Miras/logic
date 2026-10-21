@@ -2,3 +2,4 @@ mod add16;
 mod mul16;
 mod blinky;
 mod fifo16;
+mod tis100;
